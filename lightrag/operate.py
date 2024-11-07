@@ -967,6 +967,98 @@ async def hybrid_query(
         )
     return response
 
+async def hybrid_query_subgraph(
+    query,
+    knowledge_graph_inst: BaseGraphStorage,
+    entities_vdb: BaseVectorStorage,
+    relationships_vdb: BaseVectorStorage,
+    text_chunks_db: BaseKVStorage[TextChunkSchema],
+    query_param: QueryParam,
+    global_config: dict,
+) -> list[dict]:
+    low_level_subgraph = None
+    high_level_subgraph = None
+    use_model_func = global_config["llm_model_func"]
+
+    kw_prompt_temp = PROMPTS["keywords_extraction"]
+    kw_prompt = kw_prompt_temp.format(query=query)
+
+    result = await use_model_func(kw_prompt)
+    try:
+        keywords_data = json.loads(result)
+        hl_keywords = keywords_data.get("high_level_keywords", [])
+        ll_keywords = keywords_data.get("low_level_keywords", [])
+        hl_keywords = ", ".join(hl_keywords)
+        ll_keywords = ", ".join(ll_keywords)
+    except json.JSONDecodeError:
+        try:
+            result = (
+                result.replace(kw_prompt[:-1], "")
+                .replace("user", "")
+                .replace("model", "")
+                .strip()
+            )
+            result = "{" + result.split("{")[1].split("}")[0] + "}"
+            keywords_data = json.loads(result)
+            hl_keywords = keywords_data.get("high_level_keywords", [])
+            ll_keywords = keywords_data.get("low_level_keywords", [])
+            hl_keywords = ", ".join(hl_keywords)
+            ll_keywords = ", ".join(ll_keywords)
+        # Handle parsing error
+        except json.JSONDecodeError as e:
+            print(f"JSON parsing error: {e}")
+            return PROMPTS["fail_response"]
+
+    if ll_keywords:
+        low_level_subgraph = await entities_vdb.query(ll_keywords, top_k=query_param.top_k) # entities
+
+
+    if hl_keywords:
+        high_level_subgraph = await relationships_vdb.query(hl_keywords, top_k=query_param.top_k) # relations
+
+    # combine the subgraphs, and deduplicate the entities
+    # [{'__id__': 'ent-203d..', 'entity_name': '"EDUCATIONAL DATA MINING"', '__metrics__': NUMERIC, 'id': 'ent-203d..', 'distance': NUMERIC},]
+    # [{'__id__': 'rel-39f6..', 'src_id': '"HALLMARK"', 'tgt_id': '"LARGE LANGUAGE MODELS"', '__metrics__': NUMERIC, 'id': 'rel-39f6..', 'distance': NUMERIC}]
+    merged_subgraph = []
+    for subgraph in [low_level_subgraph, high_level_subgraph]:
+        for node in subgraph:
+            if node["__id__"] not in [n["__id__"] for n in merged_subgraph]:
+                merged_subgraph.append(node)
+    # construct node-edge format graph
+    # Example: {
+    #     nodes: [
+    #       { id: 'ent-1', name: 'Quantum Computing' },
+    #       { id: 'ent-2', name: 'Artificial Intelligence' },
+    #       { id: 'ent-3', name: 'Ethics' },
+    #       { id: 'ent-4', name: 'Climate Science' },
+    #     ],
+    #     links: [
+    #       { source: 'Quantum Computing', target: 'Artificial Intelligence' },
+    #       { source: 'ai', target: 'ethics' },
+    #       { source: 'climate', target: 'ethics' },
+    #     ]
+    #   }
+    graph = {"nodes": [], "links": []}
+    for item in merged_subgraph:
+        if item["__id__"].startswith("ent-"):
+            graph["nodes"].append({"id": item["__id__"], "name": item["entity_name"]})
+
+    for item in merged_subgraph:
+        # only add the relation if both src and tgt are in the nodes
+        # the src_id and tgt_id are entity names, need to do a lookup in the nodes
+        if item["__id__"].startswith("rel-"):
+            if item["src_id"] in [n["name"] for n in graph["nodes"]] and item["tgt_id"] in [n["name"] for n in graph["nodes"]]:
+                # Find node IDs by matching entity names
+                src_node = next((n["id"] for n in graph["nodes"] if n["name"] == item["src_id"]), None)
+                tgt_node = next((n["id"] for n in graph["nodes"] if n["name"] == item["tgt_id"]), None)
+                
+                if src_node and tgt_node:
+                    graph["links"].append({
+                        "source": src_node,
+                        "target": tgt_node
+                    })
+    return graph
+
 
 def combine_contexts(high_level_context, low_level_context):
     # Function to extract entities, relationships, and sources from context strings
