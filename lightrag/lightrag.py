@@ -16,7 +16,6 @@ from .operate import (
     local_query,
     global_query,
     hybrid_query,
-    hybrid_query_subgraph,
     naive_query,
 )
 
@@ -322,19 +321,6 @@ class LightRAG:
             )
         else:
             raise ValueError(f"Unknown mode {param.mode}")
-        await self._query_done()
-        return response
-    
-    async def aquery_subgraph(self, query: str, param: QueryParam = QueryParam()):
-        response = await hybrid_query_subgraph(
-                query,
-                self.chunk_entity_relation_graph,
-                self.entities_vdb,
-                self.relationships_vdb,
-                self.text_chunks,
-                param,
-            asdict(self),
-        )
         await self._query_done()
         return response
 
