@@ -12,7 +12,8 @@ import nest_asyncio
 # Apply nest_asyncio to solve event loop issues
 nest_asyncio.apply()
 
-DEFAULT_RAG_DIR = "index_default"
+# WORKING_DIR = "./temp"
+DEFAULT_RAG_DIR = "./temp"
 app = FastAPI(title="LightRAG API", description="API for RAG operations")
 
 # Configure working directory
