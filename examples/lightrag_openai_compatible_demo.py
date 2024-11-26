@@ -5,9 +5,6 @@ from lightrag.llm import openai_complete_if_cache, openai_embedding
 from lightrag.utils import EmbeddingFunc
 import numpy as np
 
-import dotenv
-dotenv.load_dotenv(".env")
-
 WORKING_DIR = "./temp"
 
 if not os.path.exists(WORKING_DIR):
@@ -18,12 +15,12 @@ async def llm_model_func(
     prompt, system_prompt=None, history_messages=[], **kwargs
 ) -> str:
     return await openai_complete_if_cache(
-        "gpt-4o",
+        "solar-mini",
         prompt,
         system_prompt=system_prompt,
         history_messages=history_messages,
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_API_BASE"),
+        api_key=os.getenv("UPSTAGE_API_KEY"),
+        base_url="https://api.upstage.ai/v1/solar",
         **kwargs,
     )
 
@@ -31,9 +28,9 @@ async def llm_model_func(
 async def embedding_func(texts: list[str]) -> np.ndarray:
     return await openai_embedding(
         texts,
-        model="text-embedding-3-small",
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_API_BASE"),
+        model="solar-embedding-1-large-query",
+        api_key=os.getenv("UPSTAGE_API_KEY"),
+        base_url="https://api.upstage.ai/v1/solar",
     )
 
 
@@ -71,7 +68,7 @@ async def main():
             ),
         )
 
-        with open("./data/UX.txt", "r", encoding="utf-8") as f:
+        with open("./book.txt", "r", encoding="utf-8") as f:
             await rag.ainsert(f.read())
 
         # Perform naive search
